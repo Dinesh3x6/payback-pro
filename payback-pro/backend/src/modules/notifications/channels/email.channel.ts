@@ -418,10 +418,19 @@ export const emailChannel: NotificationChannel = {
     // 4. Create dynamic SMTP transporter
     const transporter = nodemailer.createTransport({
       host,
-      port,
+      port: Number(port),
       secure,
-      auth: { user, pass },
-    });
+      auth: {
+        user,
+        pass,
+      },
+      connectionTimeout: 30000,
+      greetingTimeout: 30000,
+      socketTimeout: 30000,
+      tls: {
+        rejectUnauthorized: true,
+      },
+});
 
     // 5. Verify SMTP connection
     try {
