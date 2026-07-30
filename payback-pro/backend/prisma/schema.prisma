@@ -1,0 +1,308 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================================
+// ENUMS
+// ==========================================================
+
+enum LoanType {
+  LENT
+  BORROWED
+}
+
+enum LoanStatus {
+  ACTIVE
+  PARTIAL
+  PAID
+  OVERDUE
+}
+
+enum ReminderStatus {
+  PENDING
+  SCHEDULED
+  SENT
+  PAUSED
+  CANCELLED
+  FAILED
+  COMPLETED
+}
+
+// ==========================================================
+// CORE
+// ==========================================================
+
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  passwordHash  String
+  resetToken    String?
+  resetTokenExp DateTime?
+  status        String    @default("ACTIVE") // ACTIVE, DISABLED
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  borrowers Borrower[]
+  expenses  Expense[]
+  settings  Settings?
+  sessions  Session[]
+
+  @@map("users")
+}
+
+model Borrower {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String?
+  email     String?
+  photoUrl  String?
+  tags      String[] @default([])
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  loans     Loan[]
+  reminders Reminder[]
+  payments  Payment[]
+
+  @@index([userId])
+  @@map("borrowers")
+}
+
+model Loan {
+  id           String    @id @default(uuid())
+  borrowerId   String
+  borrower     Borrower  @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  principal    Decimal   @db.Decimal(12, 2)
+  interestRate Decimal   @default(0) @db.Decimal(5, 2)
+  type         LoanType      @default(LENT)
+  installments Int           @default(1)
+  dueDate      DateTime?
+  status       LoanStatus    @default(ACTIVE)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  repayments Repayment[]
+  reminders  Reminder[]
+  payments   Payment[]
+
+  @@index([borrowerId])
+  @@map("loans")
+}
+
+model Repayment {
+  id        String   @id @default(uuid())
+  loanId    String
+  loan      Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  amount    Decimal  @db.Decimal(12, 2)
+  paidAt    DateTime @default(now())
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([loanId])
+  @@map("repayments")
+}
+
+model Expense {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  String
+  amount    Decimal  @db.Decimal(12, 2)
+  note      String?
+  spentAt   DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("expenses")
+}
+
+// ==========================================================
+// REMINDERS
+// ==========================================================
+
+model Reminder {
+  id          String    @id @default(uuid())
+  borrowerId  String
+  borrower    Borrower  @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+  loanId      String?
+  loan        Loan?     @relation(fields: [loanId], references: [id], onDelete: SetNull)
+  channels    String[]  // e.g. ["EMAIL","WHATSAPP","SMS"]
+  subject     String?
+  message     String
+  scheduledAt DateTime?
+  recurring   String?   // null | DAILY | WEEKLY | MONTHLY
+  status      ReminderStatus @default(PENDING)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  history ReminderHistory[]
+
+  @@index([borrowerId])
+  @@map("reminders")
+}
+
+model ReminderHistory {
+  id         String   @id @default(uuid())
+  reminderId String
+  reminder   Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  channel    String
+  status     String   // SUCCESS | FAILED
+  response   String?
+  retryCount Int      @default(0)
+  sentAt     DateTime @default(now())
+
+  @@index([reminderId])
+  @@map("reminder_history")
+}
+
+// ==========================================================
+// NOTIFICATION CHANNEL LOGS
+// ==========================================================
+
+model NotificationHistory {
+  id        String   @id @default(uuid())
+  channel   String
+  recipient String
+  message   String
+  status    String
+  response  String?
+  createdAt DateTime @default(now())
+
+  @@map("notification_history")
+}
+
+model EmailLog {
+  id        String   @id @default(uuid())
+  to        String
+  subject   String
+  status    String
+  response  String?
+  createdAt DateTime @default(now())
+
+  @@map("email_logs")
+}
+
+model WhatsAppLog {
+  id        String   @id @default(uuid())
+  to        String
+  message   String
+  status    String
+  response  String?
+  createdAt DateTime @default(now())
+
+  @@map("whatsapp_logs")
+}
+
+model SMSLog {
+  id        String   @id @default(uuid())
+  to        String
+  message   String
+  status    String
+  response  String?
+  createdAt DateTime @default(now())
+
+  @@map("sms_logs")
+}
+
+model TelegramLog {
+  id        String   @id @default(uuid())
+  chatId    String
+  message   String
+  status    String
+  response  String?
+  createdAt DateTime @default(now())
+
+  @@map("telegram_logs")
+}
+
+// ==========================================================
+// SETTINGS
+// ==========================================================
+
+model Settings {
+  id                 String  @id @default(uuid())
+  userId             String  @unique
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultChannel     String  @default("EMAIL")
+  smtpHost           String?
+  smtpPort           Int?
+  smtpUser           String?
+  smtpPass           String?
+  twilioSid          String?
+  twilioAuthToken    String?
+  twilioWhatsAppFrom String?
+  twilioSmsFrom      String?
+  telegramBotToken   String?
+  discordWebhookUrl  String?
+  slackWebhookUrl    String?
+  teamsWebhookUrl    String?
+  theme              String  @default("LIGHT")
+
+  @@map("settings")
+}
+
+model GlobalSettings {
+  id                 String  @id @default("global")
+  adminEmail         String  @default("admin@paybackpro.com")
+  smtpHost           String?
+  smtpPort           Int?
+  smtpUser           String?
+  smtpPass           String?
+  smtpFrom           String?
+  reminderIntervals  String  @default("DAILY")
+  updatedAt          DateTime @updatedAt
+
+  @@map("global_settings")
+}
+
+model Session {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token          String   @unique
+  ipAddress      String?
+  userAgent      String?
+  device         String?
+  browser        String?
+  status         String   @default("ACTIVE") // ACTIVE, TERMINATED
+  lastActivityAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ==========================================================
+// PAYMENTS (Razorpay)
+// ==========================================================
+
+model Payment {
+  id                String   @id @default(uuid())
+  razorpayOrderId   String   @unique
+  razorpayPaymentId String?  @unique
+  razorpaySignature String?
+  loanId            String
+  loan              Loan     @relation(fields: [loanId], references: [id])
+  borrowerId        String
+  borrower          Borrower @relation(fields: [borrowerId], references: [id])
+  amount            Decimal  @db.Decimal(12, 2)
+  currency          String   @default("INR")
+  status            String   @default("CREATED") // CREATED, PAID, FAILED
+  method            String?  // upi, card, netbanking, wallet
+  gatewayResponse   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([loanId])
+  @@index([borrowerId])
+  @@map("payments")
+}

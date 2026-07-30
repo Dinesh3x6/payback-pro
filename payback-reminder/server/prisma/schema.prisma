@@ -1,0 +1,109 @@
+// PayBack Reminder - Prisma Schema
+// PostgreSQL data model for users, borrowers, payments and reminder logs
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BorrowerStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+}
+
+enum ReminderFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  NONE
+}
+
+enum PaymentMethod {
+  UPI
+  CASH
+  BANK_TRANSFER
+  OTHER
+}
+
+model User {
+  id            String     @id @default(uuid())
+  name          String
+  email         String     @unique
+  passwordHash  String?    // null when using external auth (Clerk/Firebase)
+  authProvider  String     @default("local") // local | clerk | firebase
+  externalId    String?    @unique // Clerk/Firebase UID when applicable
+  upiId         String?    // default UPI ID used to generate QR codes
+  theme         String     @default("system") // light | dark | system
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  borrowers     Borrower[]
+
+  @@map("users")
+}
+
+model Borrower {
+  id               String            @id @default(uuid())
+  userId           String
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name             String
+  email            String?
+  phone            String?
+  amount           Decimal           @db.Decimal(12, 2) // original amount lent
+  remainingAmount  Decimal           @db.Decimal(12, 2) // auto-updated on payments
+  borrowDate       DateTime
+  dueDate          DateTime
+  notes            String?
+  status           BorrowerStatus    @default(PENDING)
+
+  reminderFrequency ReminderFrequency @default(WEEKLY)
+  remindersActive   Boolean           @default(true)
+  lastReminderSentAt DateTime?
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  payments         Payment[]
+  reminderLogs     ReminderLog[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("borrowers")
+}
+
+model Payment {
+  id           String        @id @default(uuid())
+  borrowerId   String
+  borrower     Borrower      @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+
+  amount       Decimal       @db.Decimal(12, 2)
+  method       PaymentMethod @default(UPI)
+  note         String?
+  paidAt       DateTime      @default(now())
+
+  createdAt    DateTime      @default(now())
+
+  @@index([borrowerId])
+  @@map("payments")
+}
+
+model ReminderLog {
+  id          String   @id @default(uuid())
+  borrowerId  String
+  borrower    Borrower @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+
+  channel     String   @default("email") // email | sms (future)
+  success     Boolean  @default(true)
+  errorMsg    String?
+  sentAt      DateTime @default(now())
+
+  @@index([borrowerId])
+  @@map("reminder_logs")
+}

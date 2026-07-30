@@ -1,0 +1,15 @@
+{
+  "name": "payback-reminder",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Track money you've lent and automatically remind borrowers to repay — Next.js + Express + Prisma monorepo",
+  "scripts": {
+    "install:all": "cd server && npm install && cd ../client && npm install",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "prisma:migrate": "cd server && npm run prisma:migrate",
+    "prisma:seed": "cd server && npm run seed",
+    "build:server": "cd server && npm run build",
+    "build:client": "cd client && npm run build"
+  }
+}
