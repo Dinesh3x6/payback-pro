@@ -415,37 +415,64 @@ export const emailChannel: NotificationChannel = {
       return { channel: "EMAIL", status: "FAILED", response: msg };
     }
 
+    logger.info("Email Reminder: Initiating SMTP Connection Verification", {
+      host,
+      port,
+      secure,
+      from,
+      user: user ? `${user.substring(0, 3)}...` : "not set",
+      connectionTimeout: 30000,
+      greetingTimeout: 30000,
+      socketTimeout: 30000,
+    });
+
+    const fromEmailMatch = from.match(/<([^>]+)>/) || [null, from];
+    const fromEmail = fromEmailMatch[1]?.trim();
+    logger.info("Verifying sender address matches SMTP configuration", { fromEmail, user });
+    logger.info("Brevo SMTP sender note: ensure the sender email matches a verified sender in Brevo.", { fromEmail });
+
     // 4. Create dynamic SMTP transporter
     const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT),
-  secure: process.env.SMTP_SECURE === "false", // false for port 587
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
-  socketTimeout: 30000,
-});
+      host,
+      port,
+      secure,
+      auth: {
+        user,
+        pass,
+      },
+      tls: {
+        rejectUnauthorized: false,
+      },
+      connectionTimeout: 30000,
+      greetingTimeout: 30000,
+      socketTimeout: 30000,
+    });
 
     // 5. Verify SMTP connection
     try {
       await transporter.verify();
-      logger.info("SMTP connection verified successfully", { host, port });
+      logger.info("Email Reminder: SMTP connection verified successfully", { host, port });
     } catch (verifyErr: any) {
+      logger.error("Email Reminder: SMTP verification failed with detailed diagnostics", {
+        host,
+        port,
+        secure,
+        code: verifyErr.code,
+        message: verifyErr.message,
+        response: verifyErr.response,
+        responseCode: verifyErr.responseCode,
+        command: verifyErr.command,
+        stack: verifyErr.stack
+      });
+
       const detail = verifyErr.code === "EAUTH"
-        ? "SMTP Authentication Failed — check SMTP_USER and SMTP_PASS (use Gmail App Password, not normal password)."
+        ? "SMTP Authentication Failed — check SMTP_USER and SMTP_PASS (use Brevo SMTP key, not normal password)."
         : verifyErr.code === "ECONNREFUSED"
-        ? `SMTP Connection Refused — cannot reach ${host}:${port}. Check host/port or firewall.`
-        : verifyErr.code === "ESOCKET"
-        ? "SMTP Socket Error — possible network or TLS issue. Check SMTP_SECURE and SMTP_PORT."
+        ? `SMTP Connection Refused — cannot reach ${host}:${port}. Check host/port, firewall, or port blocks on Render.`
+        : verifyErr.code === "ETIMEDOUT"
+        ? `SMTP Connection Timed Out — could not reach ${host}:${port}. Port 465/587 might be blocked by Render.`
         : `SMTP Connection Failed: ${verifyErr.message || "Unknown SMTP error"}`;
 
-      logger.error("SMTP verification failed", { code: verifyErr.code, message: verifyErr.message });
       return { channel: "EMAIL", status: "FAILED", response: detail };
     }
 

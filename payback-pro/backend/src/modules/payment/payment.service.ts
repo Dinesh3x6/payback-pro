@@ -373,12 +373,54 @@ export const sendPaymentConfirmationEmail = async (
         return;
     }
 
+    logger.info("Payment Confirmation: Initiating SMTP Connection Verification", {
+        host,
+        port,
+        secure,
+        from,
+        user: user ? `${user.substring(0, 3)}...` : "not set",
+        connectionTimeout: 30000,
+        greetingTimeout: 30000,
+        socketTimeout: 30000,
+    });
+
+    const fromEmailMatch = from.match(/<([^>]+)>/) || [null, from];
+    const fromEmail = fromEmailMatch[1]?.trim();
+    logger.info("Verifying sender address matches SMTP configuration", { fromEmail, user });
+    logger.info("Brevo SMTP sender note: ensure the sender email matches a verified sender in Brevo.", { fromEmail });
+
     const transporter = nodemailer.createTransport({
         host,
         port,
         secure,
-        auth: { user, pass }
+        auth: { user, pass },
+        tls: {
+            rejectUnauthorized: false,
+        },
+        connectionTimeout: 30000,
+        greetingTimeout: 30000,
+        socketTimeout: 30000,
     });
+
+    // Verify SMTP connection
+    try {
+        await transporter.verify();
+        logger.info("Payment Confirmation: SMTP connection verified successfully", { host, port });
+    } catch (verifyErr: any) {
+        logger.error("Payment Confirmation: SMTP verification failed with detailed diagnostics", {
+            host,
+            port,
+            secure,
+            code: verifyErr.code,
+            message: verifyErr.message,
+            response: verifyErr.response,
+            responseCode: verifyErr.responseCode,
+            command: verifyErr.command,
+            stack: verifyErr.stack
+        });
+        logger.error('Failed to send payment confirmation email due to verification failure');
+        return;
+    }
 
     const formattedAmount = new Intl.NumberFormat('en-IN', {
         style: 'currency',
@@ -405,6 +447,12 @@ export const sendPaymentConfirmationEmail = async (
         });
         logger.info('Payment confirmation email sent successfully', { to: borrowerEmail });
     } catch (err: any) {
-        logger.error('Failed to send payment confirmation email', { error: err.message });
+        logger.error('Failed to send payment confirmation email during sendMail', {
+            error: err.message,
+            code: err.code,
+            response: err.response,
+            responseCode: err.responseCode,
+            stack: err.stack
+        });
     }
 };
