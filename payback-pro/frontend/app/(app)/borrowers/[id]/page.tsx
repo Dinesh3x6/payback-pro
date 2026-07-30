@@ -319,8 +319,9 @@ export default function BorrowerDetailPage() {
     setSending(true);
     try {
       const personalized = message.replace("{name}", borrower?.name ?? "");
+      const activeLoan = borrower?.loans.find(l => l.status !== "PAID") || borrower?.loans[0];
       await apiPost("/reminders/send-now", {
-        borrowerId: id, channels, message: personalized, loanId: borrower?.loans[0]?.id,
+        borrowerId: id, channels, message: personalized, loanId: activeLoan?.id,
       });
       toast.success("✓ Email Sent Successfully");
       load();

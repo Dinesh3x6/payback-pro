@@ -37,17 +37,26 @@ async function getReminderOrThrow(userId: string, id: string) {
 export async function createReminder(userId: string, input: CreateReminderInput, frontendUrlOverride?: string) {
   await assertBorrowerOwnership(userId, input.borrowerId);
 
-  if (input.loanId) {
+  let loanId = input.loanId;
+  if (loanId) {
     const loan = await prisma.loan.findFirst({
-      where: { id: input.loanId, borrowerId: input.borrowerId }
+      where: { id: loanId, borrowerId: input.borrowerId }
     });
     if (!loan) throw ApiError.notFound("Loan not found or does not belong to borrower");
+  } else {
+    const activeLoan = await prisma.loan.findFirst({
+      where: { borrowerId: input.borrowerId, status: { not: "PAID" } },
+      orderBy: { createdAt: "desc" }
+    });
+    if (activeLoan) {
+      loanId = activeLoan.id;
+    }
   }
 
   const reminder = await prisma.reminder.create({
     data: {
       borrowerId: input.borrowerId,
-      loanId: input.loanId,
+      loanId: loanId,
       channels: input.channels,
       subject: input.subject,
       message: input.message,
@@ -75,17 +84,26 @@ export async function sendNow(userId: string, input: {
 }, frontendUrlOverride?: string) {
   const borrower = await assertBorrowerOwnership(userId, input.borrowerId);
 
-  if (input.loanId) {
+  let loanId = input.loanId;
+  if (loanId) {
     const loan = await prisma.loan.findFirst({
-      where: { id: input.loanId, borrowerId: input.borrowerId }
+      where: { id: loanId, borrowerId: input.borrowerId }
     });
     if (!loan) throw ApiError.notFound("Loan not found or does not belong to borrower");
+  } else {
+    const activeLoan = await prisma.loan.findFirst({
+      where: { borrowerId: input.borrowerId, status: { not: "PAID" } },
+      orderBy: { createdAt: "desc" }
+    });
+    if (activeLoan) {
+      loanId = activeLoan.id;
+    }
   }
 
   const reminder = await prisma.reminder.create({
     data: {
       borrowerId: input.borrowerId,
-      loanId: input.loanId,
+      loanId: loanId,
       channels: input.channels,
       subject: input.subject,
       message: input.message,
@@ -153,12 +171,24 @@ export async function dispatchReminder(reminderId: string, amountDueOverride?: n
     include: { borrower: true, loan: { include: { repayments: true } } },
   });
 
+  let loan = reminder.loan;
+  if ((!loan || loan.status === "PAID") && amountDueOverride === undefined) {
+    const activeLoan = await prisma.loan.findFirst({
+      where: { borrowerId: reminder.borrowerId, status: { not: "PAID" } },
+      include: { repayments: true },
+      orderBy: { createdAt: "desc" },
+    });
+    if (activeLoan) {
+      loan = activeLoan;
+    }
+  }
+
   let amountDue = amountDueOverride ?? 0;
-  if (reminder.loan) {
-    const principal = reminder.loan.principal;
-    const interestRate = reminder.loan.interestRate;
+  if (loan) {
+    const principal = loan.principal;
+    const interestRate = loan.interestRate;
     const interest = principal.mul(interestRate).div(100);
-    const paid = reminder.loan.repayments.reduce(
+    const paid = loan.repayments.reduce(
       (s, r) => s.add(r.amount),
       new Prisma.Decimal(0)
     );
@@ -183,8 +213,8 @@ export async function dispatchReminder(reminderId: string, amountDueOverride?: n
   const channels = reminder.channels as ChannelName[];
   
   // Format due date for placeholders
-  const formattedDueDate = reminder.loan?.dueDate
-    ? new Date(reminder.loan.dueDate).toLocaleDateString("en-IN", {
+  const formattedDueDate = loan?.dueDate
+    ? new Date(loan.dueDate).toLocaleDateString("en-IN", {
         day: "numeric",
         month: "long",
         year: "numeric",
@@ -196,7 +226,7 @@ export async function dispatchReminder(reminderId: string, amountDueOverride?: n
     borrowerName: reminder.borrower.name,
     amount: amountDue,
     dueDate: formattedDueDate,
-    loanId: reminder.loan?.id || "—"
+    loanId: loan?.id || "—"
   });
 
   // Links & QR Code Generation (only if sending via EMAIL)
@@ -209,11 +239,11 @@ export async function dispatchReminder(reminderId: string, amountDueOverride?: n
     const upiName = process.env.UPI_NAME || "PayBackPro";
     if (upiId && amountDue > 0) {
       const ref = `RP_${reminder.id.replace(/-/g, "").substring(0, 12)}`; // Payment Reference
-      const note = `Loan Payment - Borrower: ${reminder.borrower.name.substring(0, 20)} - Loan: ${reminder.loanId ? reminder.loanId.substring(0, 8) : "N/A"}`;
+      const note = `Loan Payment - Borrower: ${reminder.borrower.name.substring(0, 20)} - Loan: ${loan ? loan.id.substring(0, 8) : "N/A"}`;
       upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(upiName)}&am=${amountDue.toFixed(2)}&tn=${encodeURIComponent(note)}&tr=${encodeURIComponent(ref)}&cu=INR`;
     }
 
-    if (reminder.loanId && amountDue > 0) {
+    if (loan && amountDue > 0) {
       const appUrl = env.appUrl;
       if (!appUrl) {
         logger.error(
@@ -225,7 +255,7 @@ export async function dispatchReminder(reminderId: string, amountDueOverride?: n
         );
       } else {
         try {
-          const orderResult = await createOrder(reminder.loanId, reminder.borrowerId);
+          const orderResult = await createOrder(loan.id, reminder.borrowerId);
           paymentLink = `${appUrl}/pay/${orderResult.payment.razorpayOrderId}`;
         } catch (err) {
           logger.warn("Failed to create Razorpay order during dispatch", { error: (err as Error).message });
@@ -241,7 +271,7 @@ export async function dispatchReminder(reminderId: string, amountDueOverride?: n
   // Debugging requirement: Log all details before sending
   logger.info("Email Reminder Debugging Telemetry", {
     borrower: reminder.borrower.name,
-    loanId: reminder.loan?.id || "N/A",
+    loanId: loan?.id || "N/A",
     outstandingAmount: amountDue,
     generatedPaymentUrl: paymentLink || "N/A",
     generatedQrUrl: paymentLink || upiLink || "N/A",
@@ -252,15 +282,15 @@ export async function dispatchReminder(reminderId: string, amountDueOverride?: n
     borrowerEmail: reminder.borrower.email,
     borrowerPhone: reminder.borrower.phone,
     amountDue,
-    dueDate: reminder.loan?.dueDate ?? null,
+    dueDate: loan?.dueDate ?? null,
     subject: reminder.subject,
     message: cleanMessage,
     qrCodeBase64,
     upiLink,
     paymentLink,
-    loanId: reminder.loan?.id ?? null,
-    loanAmount: reminder.loan?.principal ? Number(reminder.loan.principal) : null,
-    interestRate: reminder.loan?.interestRate ? Number(reminder.loan.interestRate) : null,
+    loanId: loan?.id ?? null,
+    loanAmount: loan?.principal ? Number(loan.principal) : null,
+    interestRate: loan?.interestRate ? Number(loan.interestRate) : null,
     reminderDate: new Date(),
   };
 
