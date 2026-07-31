@@ -50,6 +50,11 @@ function buildEmailHtml(payload: ReminderPayload, supportEmail: string): string 
       });
 
   const upiId = process.env.UPI_ID || "";
+  const upiName = process.env.UPI_NAME || "PayBackPro";
+  const note = `Loan Payment - ${payload.loanId || "N/A"}`;
+  const upiIntentUrl = upiId
+    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(upiName)}&am=${payload.amountDue.toFixed(2)}&tn=${encodeURIComponent(note)}&cu=INR`
+    : (payload.paymentLink || "#");
 
   let backendBaseUrl = process.env.RENDER_EXTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || process.env.BACKEND_API_URL || process.env.API_URL || "http://localhost:5000";
   if (backendBaseUrl.endsWith("/")) {
@@ -207,7 +212,7 @@ function buildEmailHtml(payload: ReminderPayload, supportEmail: string): string 
             <td style="padding:12px 48px 36px 48px;text-align:center;">
               <!-- Primary Action Button: Pay via UPI -->
               <div style="margin-bottom:20px;">
-                <a href="${payload.paymentLink || "#"}" target="_blank"
+                <a href="${upiIntentUrl}"
                   style="display:inline-block;box-sizing:border-box;width:100%;font-size:14px;font-weight:700;color:#FFFFFF;text-decoration:none;padding:14px 24px;border-radius:8px;background-color:#2563EB;text-align:center;box-shadow:0 4px 6px -1px rgba(37,99,235,0.2);">
                   💳 Pay via UPI
                 </a>
