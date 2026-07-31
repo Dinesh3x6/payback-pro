@@ -51,38 +51,36 @@ function buildEmailHtml(payload: ReminderPayload, supportEmail: string): string 
 
   const upiId = process.env.UPI_ID || "";
 
-  // QR code section (only if qrCodeBase64 is available)
-  const qrSection = payload.qrCodeBase64
+  let backendBaseUrl = process.env.RENDER_EXTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || process.env.BACKEND_API_URL || process.env.API_URL || "http://localhost:5000";
+  if (backendBaseUrl.endsWith("/")) {
+    backendBaseUrl = backendBaseUrl.slice(0, -1);
+  }
+  let apiUrl = backendBaseUrl.includes("/api") ? backendBaseUrl : `${backendBaseUrl}/api`;
+  const pdfUrl = payload.loanId ? `${apiUrl}/loans/${payload.loanId}/summary` : "#";
+
+  // QR code section (only if payload.loanId is available)
+  const qrSection = payload.loanId
     ? `
-      <div style="text-align:center;margin:24px 0 16px 0;background-color:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:24px;">
-        <p style="font-size:14px;color:#111827;margin:0 0 16px 0;font-weight:800;text-transform:uppercase;letter-spacing:1px;">
-          SCAN THIS QR USING ANY UPI APP
+      <div align="center" style="margin:24px 0;background-color:#FFFFFF;border:1px solid #E2E8F0;border-radius:16px;padding:32px 24px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.02),0 2px 4px -1px rgba(0,0,0,0.01);">
+        <p style="font-size:12px;color:#475569;margin:0 0 16px 0;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;">
+          Scan to Pay
         </p>
-        <div style="display:inline-block;padding:12px;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
-          <img src="cid:upi-qr-code" alt="UPI QR Code" width="180" height="180" style="display:block;" />
+        <div style="display:inline-block;padding:16px;background:#FFFFFF;border:1px solid #E2E8F0;border-radius:16px;box-shadow:0 10px 15px -3px rgba(0,0,0,0.04);">
+          <img src="${apiUrl}/loans/${payload.loanId}/qr" alt="UPI QR Code" width="180" height="180" style="display:block;" />
         </div>
-        <p style="font-size:12px;color:#4B5563;margin:16px 0 12px 0;font-weight:600;">
+        <p style="font-size:12px;color:#64748B;margin:16px 0 12px 0;font-weight:500;">
           Google Pay | PhonePe | Paytm | BHIM | Amazon Pay
         </p>
         ${
           upiId
-            ? `<p style="font-size:13px;color:#374151;margin:8px 0 4px 0;font-weight:600;">UPI ID: <span style="font-family:monospace;color:#111827;">${upiId}</span></p>`
+            ? `<p style="font-size:13px;color:#334155;margin:8px 0 4px 0;font-weight:600;">UPI ID: <span style="font-family:monospace;color:#0F172A;background:#F1F5F9;padding:2px 6px;border-radius:4px;">${upiId}</span></p>`
             : ""
         }
-        <p style="font-size:13px;color:#374151;margin:4px 0 0 0;font-weight:600;">
+        <p style="font-size:13px;color:#334155;margin:4px 0 0 0;font-weight:600;">
           Amount: <span style="color:#2563EB;font-weight:700;">₹${payload.amountDue.toLocaleString("en-IN")}</span>
         </p>
       </div>`
     : "";
-
-  let apiUrl = process.env.NEXT_PUBLIC_API_URL || process.env.BACKEND_API_URL || process.env.API_URL || "http://localhost:5000/api";
-  if (apiUrl.endsWith("/")) {
-    apiUrl = apiUrl.slice(0, -1);
-  }
-  if (!apiUrl.includes("/api")) {
-    apiUrl += "/api";
-  }
-  const pdfUrl = payload.loanId ? `${apiUrl}/loans/${payload.loanId}/summary` : "#";
 
   return `
 <!DOCTYPE html>
@@ -92,101 +90,55 @@ function buildEmailHtml(payload: ReminderPayload, supportEmail: string): string 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Payment Reminder - PayBack Pro</title>
 </head>
-<body style="margin:0;padding:0;background-color:#F8FAFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;">
+<body style="margin:0;padding:0;background-color:#F8FAFC;font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F8FAFC;padding:40px 10px;">
     <tr>
       <td align="center">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0"
-          style="max-width:600px;width:100%;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;overflow:hidden;box-shadow:0 10px 15px -3px rgba(0,0,0,0.05),0 4px 6px -2px rgba(0,0,0,0.02);">
+          style="max-width:600px;width:100%;background:#FFFFFF;border:1px solid #E2E8F0;border-radius:16px;overflow:hidden;box-shadow:0 10px 15px -3px rgba(15,23,42,0.05),0 4px 6px -2px rgba(15,23,42,0.02);">
           
-          <!-- Gradient Header Banner -->
+          <!-- Dark Navy Header -->
           <tr>
-            <td style="background:linear-gradient(135deg,#1E40AF 0%,#2563EB 50%,#3B82F6 100%);padding:40px 48px;text-align:left;">
+            <td style="background-color:#0F172A;padding:40px 48px;text-align:left;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td>
-                    <span style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:1.5px;">PayBack Pro</span>
-                    <h1 style="margin:6px 0 4px 0;font-size:24px;font-weight:800;color:#FFFFFF;letter-spacing:-0.5px;">
-                      Friendly Payment Reminder
-                    </h1>
-                    <p style="margin:0;font-size:14px;color:rgba(255,255,255,0.75);">
-                      Helping you stay on top of your payments.
-                    </p>
+                    <div style="font-size:20px;font-weight:800;color:#FFFFFF;letter-spacing:-0.5px;margin-bottom:4px;">
+                      💰 PayBack Pro
+                    </div>
+                    <div style="font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:1px;">
+                      Smart Loan & Payment Reminder
+                    </div>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
 
-          <!-- Message Body -->
+          <!-- Greeting -->
           <tr>
             <td style="padding:40px 48px 24px 48px;">
-              <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:700;color:#111827;">
-                Hello ${payload.borrowerName} 👋
+              <h2 style="margin:0 0 12px 0;font-size:20px;font-weight:700;color:#0F172A;letter-spacing:-0.5px;">
+                Hello ${payload.borrowerName},
               </h2>
-              <p style="margin:0 0 24px 0;font-size:15px;line-height:24px;color:#374151;">
-                We hope you're doing well. This is a friendly reminder regarding your pending payment. Please find the details of your outstanding balance below:
+              <p style="margin:0;font-size:15px;line-height:24px;color:#334155;">
+                This is a friendly reminder regarding your outstanding loan payment. Please review the details below and complete the payment before the due date.
               </p>
             </td>
           </tr>
 
-          <!-- Payment Summary Card -->
-          <tr>
-            <td style="padding:0 48px 24px 48px;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-                style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:12px;box-shadow:0 1px 3px 0 rgba(0,0,0,0.05);overflow:hidden;">
-                
-                <!-- Main Owed Amount Header -->
-                <tr>
-                  <td style="padding:24px;background:#F8FAFC;border-bottom:1px solid #E5E7EB;text-align:center;">
-                    <span style="font-size:11px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:1px;">Outstanding Amount</span>
-                    <h3 style="margin:6px 0 0 0;font-size:36px;font-weight:800;color:#2563EB;letter-spacing:-1px;">
-                      ${formattedAmount}
-                    </h3>
-                  </td>
-                </tr>
-
-                <!-- Details Rows -->
-                <tr>
-                  <td style="padding:20px 24px;">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;">
-                      <tr>
-                        <td style="padding:8px 0;color:#6B7280;">Loan Amount</td>
-                        <td style="padding:8px 0;font-weight:600;color:#111827;text-align:right;">${formattedLoanAmount}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding:8px 0;color:#6B7280;border-top:1px solid #F1F5F9;">Loan ID</td>
-                        <td style="padding:8px 0;font-weight:600;color:#111827;text-align:right;font-family:monospace;border-top:1px solid #F1F5F9;">${payload.loanId || "—"}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding:8px 0;color:#6B7280;border-top:1px solid #F1F5F9;">Due Date</td>
-                        <td style="padding:8px 0;font-weight:600;color:#EF4444;text-align:right;border-top:1px solid #F1F5F9;">${dueDateStr}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding:8px 0;color:#6B7280;border-top:1px solid #F1F5F9;">Status</td>
-                        <td style="padding:8px 0;text-align:right;border-top:1px solid #F1F5F9;">
-                          <span style="display:inline-block;padding:2px 8px;background:#FEF3C7;color:#D97706;border-radius:9999px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Pending</span>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Custom Message Box -->
+          <!-- Message from Lender (Subtle Yellow Card) -->
           ${
             payload.message
               ? `
               <tr>
                 <td style="padding:0 48px 24px 48px;">
                   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-                    style="background:#FFFBEB;border:1px solid #FEF3C7;border-radius:8px;">
+                    style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:12px;">
                     <tr>
-                      <td style="padding:16px 20px;font-size:14px;color:#B45309;line-height:22px;font-style:italic;">
-                        <strong>Message from Lender:</strong><br/>
-                        "${payload.message.replace(/\n/g, "<br/>")}"
+                      <td style="padding:20px;font-size:14px;color:#B45309;line-height:22px;">
+                        <strong style="font-weight:700;color:#92400E;display:block;margin-bottom:6px;text-transform:uppercase;font-size:11px;letter-spacing:1px;">Message from Lender</strong>
+                        <span style="font-style:italic;">"${payload.message.replace(/\n/g, "<br/>")}"</span>
                       </td>
                     </tr>
                   </table>
@@ -195,9 +147,52 @@ function buildEmailHtml(payload: ReminderPayload, supportEmail: string): string 
               : ""
           }
 
+          <!-- Loan Information Details Card -->
+          <tr>
+            <td style="padding:0 48px 24px 48px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                style="background:#FFFFFF;border:1px solid #E2E8F0;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.02);">
+                
+                <!-- Highlights Outstanding Amount -->
+                <tr>
+                  <td style="padding:28px 24px;background:#F8FAFC;border-bottom:1px solid #E2E8F0;text-align:center;">
+                    <span style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:1.5px;display:block;margin-bottom:6px;">Outstanding Amount</span>
+                    <h3 style="margin:0;font-size:38px;font-weight:800;color:#2563EB;letter-spacing:-1px;">
+                      ${formattedAmount}
+                    </h3>
+                  </td>
+                </tr>
 
-
-
+                <!-- Details Rows -->
+                <tr>
+                  <td style="padding:24px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#334155;">
+                      <tr>
+                        <td style="padding:10px 0;color:#64748B;">Borrower Name</td>
+                        <td style="padding:10px 0;font-weight:600;color:#0F172A;text-align:right;">${payload.borrowerName}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:10px 0;color:#64748B;border-top:1px solid #F1F5F9;">Loan Amount</td>
+                        <td style="padding:10px 0;font-weight:600;color:#0F172A;text-align:right;border-top:1px solid #F1F5F9;">${formattedLoanAmount}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:10px 0;color:#64748B;border-top:1px solid #F1F5F9;">Interest Rate</td>
+                        <td style="padding:10px 0;font-weight:600;color:#0F172A;text-align:right;border-top:1px solid #F1F5F9;">${payload.interestRate !== null && payload.interestRate !== undefined ? `${payload.interestRate}%` : "—"}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:10px 0;color:#64748B;border-top:1px solid #F1F5F9;">Due Date</td>
+                        <td style="padding:10px 0;font-weight:600;color:#EF4444;text-align:right;border-top:1px solid #F1F5F9;">${dueDateStr}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:10px 0;color:#64748B;border-top:1px solid #F1F5F9;">Reminder Date</td>
+                        <td style="padding:10px 0;font-weight:600;color:#0F172A;text-align:right;border-top:1px solid #F1F5F9;">${reminderDateStr}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
           <!-- Dynamic QR Code Section -->
           ${qrSection ? `
@@ -207,104 +202,67 @@ function buildEmailHtml(payload: ReminderPayload, supportEmail: string): string 
             </td>
           </tr>` : ""}
 
-
-
-          <!-- Detailed Borrower Fields -->
+          <!-- Quick Actions Buttons -->
           <tr>
-            <td style="padding:0 48px 24px 48px;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-                style="background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:20px;font-size:13px;color:#374151;">
+            <td style="padding:12px 48px 36px 48px;text-align:center;">
+              <!-- Primary Action Button: Pay via UPI -->
+              <div style="margin-bottom:20px;">
+                <a href="${payload.paymentLink || "#"}" target="_blank"
+                  style="display:inline-block;box-sizing:border-box;width:100%;font-size:14px;font-weight:700;color:#FFFFFF;text-decoration:none;padding:14px 24px;border-radius:8px;background-color:#2563EB;text-align:center;box-shadow:0 4px 6px -1px rgba(37,99,235,0.2);">
+                  💳 Pay via UPI
+                </a>
+              </div>
+
+              <!-- Secondary Actions: Equal Sized, Aligned properly -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td colspan="2" style="font-weight:700;color:#111827;padding-bottom:12px;border-bottom:1px solid #E5E7EB;">
-                    Borrower Details
+                  <td width="48%">
+                    <a href="${pdfUrl}" target="_blank"
+                      style="display:block;box-sizing:border-box;font-size:12px;font-weight:700;color:#475569;text-decoration:none;padding:12px 16px;border:1px solid #CBD5E1;border-radius:8px;background-color:#FFFFFF;text-align:center;">
+                      📄 Download Summary
+                    </a>
                   </td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0 4px 0;color:#6B7280;">Borrower Name</td>
-                  <td style="padding:8px 0 4px 0;font-weight:600;text-align:right;color:#111827;">${payload.borrowerName}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0;color:#6B7280;">Phone Number</td>
-                  <td style="padding:4px 0;font-weight:600;text-align:right;color:#111827;">${payload.borrowerPhone || "—"}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0;color:#6B7280;">Loan Amount</td>
-                  <td style="padding:4px 0;font-weight:600;text-align:right;color:#111827;">${formattedLoanAmount}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0;color:#6B7280;">Outstanding Balance</td>
-                  <td style="padding:4px 0;font-weight:600;text-align:right;color:#2563EB;">${formattedAmount}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0;color:#6B7280;">Interest Rate</td>
-                  <td style="padding:4px 0;font-weight:600;text-align:right;color:#111827;">${payload.interestRate !== null && payload.interestRate !== undefined ? `${payload.interestRate}%` : "—"}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0;color:#6B7280;">Due Date</td>
-                  <td style="padding:4px 0;font-weight:600;text-align:right;color:#111827;">${dueDateStr}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0 8px 0;color:#6B7280;border-bottom:1px solid #E5E7EB;">Reminder Date</td>
-                  <td style="padding:4px 0 8px 0;font-weight:600;text-align:right;color:#111827;border-bottom:1px solid #E5E7EB;">${reminderDateStr}</td>
+                  <td width="4%">&nbsp;</td>
+                  <td width="48%">
+                    <a href="mailto:${supportEmail}"
+                      style="display:block;box-sizing:border-box;font-size:12px;font-weight:700;color:#475569;text-decoration:none;padding:12px 16px;border:1px solid #CBD5E1;border-radius:8px;background-color:#FFFFFF;text-align:center;">
+                      📞 Contact Lender
+                    </a>
+                  </td>
                 </tr>
               </table>
             </td>
           </tr>
 
-          <!-- Quick Actions -->
-          <tr>
-            <td style="padding:0 48px 24px 48px;text-align:center;">
-              <div style="margin-top:8px;">
-
-                <a href="${pdfUrl}" target="_blank"
-                  style="display:inline-block;margin:4px 8px;font-size:12px;font-weight:700;color:#4B5563;text-decoration:none;padding:8px 16px;border:1px solid #D1D5DB;border-radius:6px;background-color:#FFFFFF;">
-                  📄 Download Loan Summary
-                </a>
-                <a href="${payload.paymentLink || "#"}" target="_blank"
-                  style="display:inline-block;margin:4px 8px;font-size:12px;font-weight:700;color:#2563EB;text-decoration:none;padding:8px 16px;border:1px solid #2563EB;border-radius:6px;background-color:#FFFFFF;">
-                  💳 Pay via UPI
-                </a>
-                <a href="mailto:${supportEmail}"
-                  style="display:inline-block;margin:4px 8px;font-size:12px;font-weight:700;color:#4B5563;text-decoration:none;padding:8px 16px;border:1px solid #D1D5DB;border-radius:6px;background-color:#FFFFFF;">
-                  📞 Contact Lender
-                </a>
-              </div>
-            </td>
-          </tr>
-
-          <!-- Notice -->
-          <tr>
-            <td style="padding:0 48px 24px 48px;text-align:center;">
-              <p style="font-size:12px;color:#9CA3AF;margin:0 0 4px 0;line-height:18px;">
-                If you've already completed your payment, please ignore this reminder.
-              </p>
-              <p style="font-size:12px;color:#9CA3AF;margin:0;line-height:18px;font-weight:600;">
-                Thank you for choosing PayBack Pro.
-              </p>
-            </td>
-          </tr>
-
           <!-- Divider -->
           <tr>
-            <td style="padding:8px 48px 0 48px;">
-              <hr style="border:none;border-top:1px solid #E5E7EB;margin:0;" />
+            <td style="padding:0 48px;">
+              <hr style="border:none;border-top:1px solid #E2E8F0;margin:0;" />
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="padding:24px 48px 40px 48px;text-align:center;">
-              <p style="font-size:13px;font-weight:700;color:#374151;margin:0 0 6px 0;">
-                💰 PayBack Pro
+            <td style="padding:32px 48px 48px 48px;text-align:center;">
+              <p style="font-size:14px;font-weight:600;color:#475569;margin:0 0 8px 0;line-height:22px;">
+                Thank you for using PayBack Pro.
               </p>
-              <p style="font-size:11px;color:#9CA3AF;margin:0 0 12px 0;line-height:16px;">
-                This email was generated automatically. Sent securely by PayBack Pro.<br/>
-                <a href="#" style="color:#6B7280;text-decoration:underline;">Website</a> • 
-                <a href="mailto:${supportEmail}" style="color:#6B7280;text-decoration:underline;">Support</a> • 
-                <a href="#" style="color:#6B7280;text-decoration:underline;">Privacy Policy</a> • 
-                <a href="#" style="color:#6B7280;text-decoration:underline;">Terms</a>
+              <p style="font-size:12px;color:#64748B;margin:0 0 16px 0;line-height:20px;">
+                If you have already completed this payment, please ignore this reminder.<br/>
+                Need assistance? Contact your lender.
               </p>
-              <p style="font-size:11px;color:#9CA3AF;margin:0;">
+              <p style="font-size:13px;font-weight:700;color:#0F172A;margin:0 0 4px 0;">
+                PayBack Pro
+              </p>
+              <p style="font-size:11px;color:#94A3B8;margin:0 0 16px 0;">
+                Secure Loan & Payment Management
+              </p>
+              <p style="font-size:12px;color:#64748B;margin:0;line-height:18px;">
+                <a href="#" style="color:#2563EB;text-decoration:none;font-weight:600;">Website</a> &nbsp;|&nbsp; 
+                <a href="#" style="color:#2563EB;text-decoration:none;font-weight:600;">Privacy Policy</a> &nbsp;|&nbsp; 
+                <a href="#" style="color:#2563EB;text-decoration:none;font-weight:600;">Terms</a>
+              </p>
+              <p style="font-size:11px;color:#94A3B8;margin:24px 0 0 0;">
                 © 2026 PayBack Pro. All rights reserved.
               </p>
             </td>
@@ -317,6 +275,7 @@ function buildEmailHtml(payload: ReminderPayload, supportEmail: string): string 
 </body>
 </html>`;
 }
+
 
 // ──────────────────────────────────────────────────────────────────────────
 // SLEEP HELPER
