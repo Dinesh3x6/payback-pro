@@ -75,8 +75,14 @@ function buildEmailHtml(payload: ReminderPayload, supportEmail: string): string 
       </div>`
     : "";
 
-  const appUrl = process.env.APP_URL || process.env.PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.CLIENT_URL || "http://localhost:3000";
-  const pdfUrl = payload.loanId ? `${appUrl}/api/loans/${payload.loanId}/summary` : "#";
+  let apiUrl = process.env.NEXT_PUBLIC_API_URL || process.env.BACKEND_API_URL || process.env.API_URL || "http://localhost:5000/api";
+  if (apiUrl.endsWith("/")) {
+    apiUrl = apiUrl.slice(0, -1);
+  }
+  if (!apiUrl.includes("/api")) {
+    apiUrl += "/api";
+  }
+  const pdfUrl = payload.loanId ? `${apiUrl}/loans/${payload.loanId}/summary` : "#";
 
   return `
 <!DOCTYPE html>
@@ -422,9 +428,16 @@ export const emailChannel: NotificationChannel = {
     let htmlBody = buildEmailHtml(payload, supportEmail);
     const plainText = `Hi ${payload.borrowerName},\n\nThis is a friendly reminder about your outstanding payment of ₹${payload.amountDue}.\n${payload.dueDate ? `Due date: ${new Date(payload.dueDate).toDateString()}\n` : ""}${payload.message}\n\nThank you,\nPayBack Pro`;
 
-    if (payload.qrCodeBase64) {
-      // In Brevo REST API, inline CIDs are not supported reliably, so we inline the base64 URI directly inside htmlBody
-      htmlBody = htmlBody.replace('src="cid:upi-qr-code"', `src="${payload.qrCodeBase64}"`);
+    if (payload.loanId) {
+      let apiUrl = process.env.NEXT_PUBLIC_API_URL || process.env.BACKEND_API_URL || process.env.API_URL || "http://localhost:5000/api";
+      if (apiUrl.endsWith("/")) {
+        apiUrl = apiUrl.slice(0, -1);
+      }
+      if (!apiUrl.includes("/api")) {
+        apiUrl += "/api";
+      }
+      const qrCodeUrl = `${apiUrl}/loans/${payload.loanId}/qr`;
+      htmlBody = htmlBody.replace('src="cid:upi-qr-code"', `src="${qrCodeUrl}"`);
     }
 
     const brevoEmailPayload: BrevoEmailPayload = {
@@ -434,18 +447,6 @@ export const emailChannel: NotificationChannel = {
       htmlContent: htmlBody,
       textContent: plainText
     };
-
-    if (payload.qrCodeBase64) {
-      const base64Part = payload.qrCodeBase64.includes(",")
-        ? payload.qrCodeBase64.split(",")[1]
-        : payload.qrCodeBase64;
-      brevoEmailPayload.attachment = [
-        {
-          name: "upi-qr.png",
-          content: base64Part
-        }
-      ];
-    }
 
     // 4. Send with retry (up to MAX_RETRIES attempts)
     let lastError = "";

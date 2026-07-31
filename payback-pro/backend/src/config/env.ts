@@ -37,6 +37,7 @@ export const env = {
     keySecret: process.env.RAZORPAY_KEY_SECRET ?? "",
     webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET ?? "",
   },
+  brevoApiKey: process.env.BREVO_API_KEY ?? "",
 
   appUrl: process.env.APP_URL || process.env.PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.CLIENT_URL || null,
   frontendUrl: process.env.APP_URL ?? process.env.CORS_ORIGIN ?? "http://localhost:3000",
