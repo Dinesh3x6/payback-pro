@@ -3,6 +3,7 @@ import { env } from "../../../config/env";
 import { logger } from "../../../config/logger";
 import { prisma } from "../../../prisma/client";
 import { NotificationChannel, ReminderPayload, ChannelResult } from "../notification.types";
+import { sendBrevoEmail, BrevoEmailPayload } from "../../../utils/brevo";
 
 // ──────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -391,140 +392,80 @@ export const emailChannel: NotificationChannel = {
       emailRecipient: payload.borrowerEmail
     });
 
-    // 2. Fetch dynamic SMTP settings from database
+    // 2. Fetch dynamic SMTP settings from database (specifically from name/email)
     const globalSettings = await prisma.globalSettings.findUnique({
       where: { id: "global" }
     });
 
-    const host = globalSettings?.smtpHost || env.smtp.host;
-    const port = globalSettings?.smtpPort ? Number(globalSettings.smtpPort) : env.smtp.port;
-    const user = globalSettings?.smtpUser || env.smtp.user;
-    const pass = globalSettings?.smtpPass || env.smtp.pass;
     const from = globalSettings?.smtpFrom || env.smtp.from;
-    const secure = globalSettings?.smtpPort ? (Number(globalSettings.smtpPort) === 465) : env.smtp.secure;
 
-    // 3. Validate SMTP configuration
-    if (!host) {
-      const msg = "SMTP not configured: SMTP_HOST is missing.";
-      logger.error(msg);
-      return { channel: "EMAIL", status: "FAILED", response: msg };
-    }
-    if (!user || !pass) {
-      const msg = "SMTP not configured: set SMTP_USER and SMTP_PASS in settings or .env";
+    const apiKey = process.env.BREVO_API_KEY;
+    if (!apiKey) {
+      const msg = "Brevo API Key not configured: BREVO_API_KEY environment variable is missing.";
       logger.error(msg);
       return { channel: "EMAIL", status: "FAILED", response: msg };
     }
 
-    logger.info("Email Reminder: Initiating SMTP Connection Verification", {
-      host,
-      port,
-      secure,
-      from,
-      user: user ? `${user.substring(0, 3)}...` : "not set",
-      connectionTimeout: 30000,
-      greetingTimeout: 30000,
-      socketTimeout: 30000,
-    });
-
+    const fromNameMatch = from.match(/^([^<]+)/);
     const fromEmailMatch = from.match(/<([^>]+)>/) || [null, from];
-    const fromEmail = fromEmailMatch[1]?.trim();
-    logger.info("Verifying sender address matches SMTP configuration", { fromEmail, user });
-    logger.info("Brevo SMTP sender note: ensure the sender email matches a verified sender in Brevo.", { fromEmail });
+    const fromName = fromNameMatch ? fromNameMatch[1].trim() : "PayBack Pro";
+    const fromEmail = fromEmailMatch[1]?.trim() || "no-reply@paybackpro.local";
 
-    // 4. Create dynamic SMTP transporter
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: {
-        user,
-        pass,
-      },
-      tls: {
-        rejectUnauthorized: false,
-      },
-      connectionTimeout: 30000,
-      greetingTimeout: 30000,
-      socketTimeout: 30000,
+    logger.info("Email Reminder: Initiating Brevo HTTPS Connection", {
+      fromName,
+      fromEmail,
+      recipient: payload.borrowerEmail
     });
 
-    // 5. Verify SMTP connection
-    try {
-      await transporter.verify();
-      logger.info("Email Reminder: SMTP connection verified successfully", { host, port });
-    } catch (verifyErr: any) {
-      logger.error("Email Reminder: SMTP verification failed with detailed diagnostics", {
-        host,
-        port,
-        secure,
-        code: verifyErr.code,
-        message: verifyErr.message,
-        response: verifyErr.response,
-        responseCode: verifyErr.responseCode,
-        command: verifyErr.command,
-        stack: verifyErr.stack
-      });
-
-      const detail = verifyErr.code === "EAUTH"
-        ? "SMTP Authentication Failed — check SMTP_USER and SMTP_PASS (use Brevo SMTP key, not normal password)."
-        : verifyErr.code === "ECONNREFUSED"
-        ? `SMTP Connection Refused — cannot reach ${host}:${port}. Check host/port, firewall, or port blocks on Render.`
-        : verifyErr.code === "ETIMEDOUT"
-        ? `SMTP Connection Timed Out — could not reach ${host}:${port}. Port 465/587 might be blocked by Render.`
-        : `SMTP Connection Failed: ${verifyErr.message || "Unknown SMTP error"}`;
-
-      return { channel: "EMAIL", status: "FAILED", response: detail };
-    }
-
-    // 6. Build the email
+    // 3. Build the email
     const supportEmail = globalSettings?.adminEmail || "support@paybackpro.com";
-    const htmlBody = buildEmailHtml(payload, supportEmail);
+    let htmlBody = buildEmailHtml(payload, supportEmail);
     const plainText = `Hi ${payload.borrowerName},\n\nThis is a friendly reminder about your outstanding payment of ₹${payload.amountDue}.\n${payload.dueDate ? `Due date: ${new Date(payload.dueDate).toDateString()}\n` : ""}${payload.message}\n\nThank you,\nPayBack Pro`;
 
-    const mailOptions: nodemailer.SendMailOptions = {
-      from,
-      to: payload.borrowerEmail,
+    if (payload.qrCodeBase64) {
+      // In Brevo REST API, inline CIDs are not supported reliably, so we inline the base64 URI directly inside htmlBody
+      htmlBody = htmlBody.replace('src="cid:upi-qr-code"', `src="${payload.qrCodeBase64}"`);
+    }
+
+    const brevoEmailPayload: BrevoEmailPayload = {
+      sender: { name: fromName, email: fromEmail },
+      to: [{ email: payload.borrowerEmail, name: payload.borrowerName }],
       subject: payload.subject || `Payment Reminder — ₹${payload.amountDue.toLocaleString("en-IN")}`,
-      text: plainText,
-      html: htmlBody,
+      htmlContent: htmlBody,
+      textContent: plainText
     };
 
     if (payload.qrCodeBase64) {
       const base64Part = payload.qrCodeBase64.includes(",")
         ? payload.qrCodeBase64.split(",")[1]
         : payload.qrCodeBase64;
-      mailOptions.attachments = [
+      brevoEmailPayload.attachment = [
         {
-          filename: "upi-qr.png",
-          content: Buffer.from(base64Part, "base64"),
-          cid: "upi-qr-code"
+          name: "upi-qr.png",
+          content: base64Part
         }
       ];
     }
 
-    // 7. Send with retry (up to MAX_RETRIES attempts)
+    // 4. Send with retry (up to MAX_RETRIES attempts)
     let lastError = "";
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const info = await transporter.sendMail(mailOptions);
-        logger.info("✓ Email sent successfully", {
+        const result = await sendBrevoEmail(apiKey, brevoEmailPayload);
+        logger.info("✓ Email sent successfully via Brevo REST API", {
           to: payload.borrowerEmail,
-          messageId: info.messageId,
+          statusCode: result.statusCode,
+          messageId: (result.data as any)?.messageId,
           attempt,
         });
         return {
           channel: "EMAIL",
           status: "SUCCESS",
-          response: `Email delivered (messageId: ${info.messageId}, attempt: ${attempt})`,
+          response: `Email delivered via Brevo API (statusCode: ${result.statusCode}, messageId: ${(result.data as any)?.messageId}, attempt: ${attempt})`,
         };
       } catch (err: any) {
-        lastError = err.responseCode
-          ? `SMTP Error ${err.responseCode}: ${err.response || err.message}`
-          : err.code === "EENVELOPE"
-          ? `Invalid recipient email address: ${payload.borrowerEmail}`
-          : err.code === "ECONNECTION"
-          ? "Internet connection failed — could not reach SMTP server."
-          : err.message || "Unknown SMTP error during transmission";
+        const errDetail = err.error ? JSON.stringify(err.error) : err.message || "Unknown error";
+        lastError = `HTTP Status ${err.statusCode}: ${errDetail}`;
 
         logger.warn(`Email attempt ${attempt}/${MAX_RETRIES} failed`, {
           to: payload.borrowerEmail,

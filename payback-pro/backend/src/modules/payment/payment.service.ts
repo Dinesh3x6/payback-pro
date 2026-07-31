@@ -6,6 +6,7 @@ import { ApiError } from '../../utils/apiError';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
+import { sendBrevoEmail, BrevoEmailPayload } from '../../utils/brevo';
 
 export const createOrder = async (loanId: string, borrowerId: string) => {
     const loan = await prisma.loan.findUnique({
@@ -361,66 +362,24 @@ export const sendPaymentConfirmationEmail = async (
         where: { id: 'global' }
     });
 
-    const host = globalSettings?.smtpHost || env.smtp.host;
-    const port = globalSettings?.smtpPort ? Number(globalSettings.smtpPort) : env.smtp.port;
-    const user = globalSettings?.smtpUser || env.smtp.user;
-    const pass = globalSettings?.smtpPass || env.smtp.pass;
     const from = globalSettings?.smtpFrom || env.smtp.from;
-    const secure = globalSettings?.smtpPort ? (Number(globalSettings.smtpPort) === 465) : env.smtp.secure;
 
-    if (!host || !user || !pass) {
-        logger.warn('SMTP settings not configured, skipping confirmation email');
+    const apiKey = process.env.BREVO_API_KEY;
+    if (!apiKey) {
+        logger.error('Brevo API Key not configured, skipping confirmation email');
         return;
     }
 
-    logger.info("Payment Confirmation: Initiating SMTP Connection Verification", {
-        host,
-        port,
-        secure,
-        from,
-        user: user ? `${user.substring(0, 3)}...` : "not set",
-        connectionTimeout: 30000,
-        greetingTimeout: 30000,
-        socketTimeout: 30000,
-    });
-
+    const fromNameMatch = from.match(/^([^<]+)/);
     const fromEmailMatch = from.match(/<([^>]+)>/) || [null, from];
-    const fromEmail = fromEmailMatch[1]?.trim();
-    logger.info("Verifying sender address matches SMTP configuration", { fromEmail, user });
-    logger.info("Brevo SMTP sender note: ensure the sender email matches a verified sender in Brevo.", { fromEmail });
+    const fromName = fromNameMatch ? fromNameMatch[1].trim() : "PayBack Pro";
+    const fromEmail = fromEmailMatch[1]?.trim() || "no-reply@paybackpro.local";
 
-    const transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        auth: { user, pass },
-        tls: {
-            rejectUnauthorized: false,
-        },
-        connectionTimeout: 30000,
-        greetingTimeout: 30000,
-        socketTimeout: 30000,
+    logger.info("Payment Confirmation: Initiating Brevo HTTPS Connection", {
+        fromName,
+        fromEmail,
+        recipient: borrowerEmail
     });
-
-    // Verify SMTP connection
-    try {
-        await transporter.verify();
-        logger.info("Payment Confirmation: SMTP connection verified successfully", { host, port });
-    } catch (verifyErr: any) {
-        logger.error("Payment Confirmation: SMTP verification failed with detailed diagnostics", {
-            host,
-            port,
-            secure,
-            code: verifyErr.code,
-            message: verifyErr.message,
-            response: verifyErr.response,
-            responseCode: verifyErr.responseCode,
-            command: verifyErr.command,
-            stack: verifyErr.stack
-        });
-        logger.error('Failed to send payment confirmation email due to verification failure');
-        return;
-    }
 
     const formattedAmount = new Intl.NumberFormat('en-IN', {
         style: 'currency',
@@ -438,21 +397,25 @@ export const sendPaymentConfirmationEmail = async (
         </div>
     `;
 
+    const brevoEmailPayload: BrevoEmailPayload = {
+        sender: { name: fromName, email: fromEmail },
+        to: [{ email: borrowerEmail, name: borrowerName }],
+        subject: `Payment Confirmed: ${formattedAmount} Received - PayBack Pro`,
+        htmlContent: html
+    };
+
     try {
-        await transporter.sendMail({
-            from,
+        const result = await sendBrevoEmail(apiKey, brevoEmailPayload);
+        logger.info('Payment confirmation email sent successfully via Brevo REST API', {
             to: borrowerEmail,
-            subject: `Payment Confirmed: ${formattedAmount} Received - PayBack Pro`,
-            html
+            statusCode: result.statusCode,
+            messageId: (result.data as any)?.messageId
         });
-        logger.info('Payment confirmation email sent successfully', { to: borrowerEmail });
     } catch (err: any) {
-        logger.error('Failed to send payment confirmation email during sendMail', {
-            error: err.message,
-            code: err.code,
-            response: err.response,
-            responseCode: err.responseCode,
-            stack: err.stack
+        const errDetail = err.error ? JSON.stringify(err.error) : err.message || "Unknown error";
+        logger.error('Failed to send payment confirmation email via Brevo REST API', {
+            statusCode: err.statusCode,
+            error: errDetail
         });
     }
 };
